@@ -10,11 +10,19 @@ on:
     inputs:
       run_id:
         description: "Run ID of a successful win64-installer build to publish"
-        required: true
-        default: "30064549157"
+        required: false
+  # Also run when this file itself changes, so it can be kicked off with a push.
+  push:
+    branches: [ claude/win64-installer-ci ]
+    paths: [ '.github/workflows/publish-release.yml' ]
 
 permissions:
   contents: write
+  actions: read
+
+env:
+  # Successful win64-installer run whose artifact we publish by default.
+  SOURCE_RUN_ID: "30064549157"
 
 jobs:
   publish:
@@ -25,7 +33,7 @@ jobs:
         with:
           name: vlc-win64-installer
           path: dist
-          run-id: ${{ github.event.inputs.run_id }}
+          run-id: ${{ github.event.inputs.run_id || env.SOURCE_RUN_ID }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Show what we got
