@@ -1,0 +1,78 @@
+name: Build patched VLC for Windows (x86_64)
+
+# Cross-compiles this branch (which contains the subtitle hot-switch fix) into a
+# Windows build and uploads the installer .exe plus a portable .7z as artifacts.
+# Runs inside VideoLAN's official win64 build image, which has the mingw-w64
+# toolchain + NSIS. GitHub-hosted runners can reach VideoLAN's contrib servers,
+# so prebuilt contribs are used when available (fast); otherwise contribs are
+# built from source (slow but still works).
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - claude/win64-installer-ci
+
+permissions:
+  contents: read
+
+jobs:
+  win64:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    container:
+      image: registry.videolan.org/vlc-debian-win64-posix:20260611225331
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Mark workspace safe for git
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Resolve prebuilt contribs (speed-up when available)
+        shell: bash
+        run: |
+          set -x
+          TRIPLET=x86_64-w64-mingw32
+          VLC_CONTRIB_SHA="$(extras/ci/get-contrib-sha.sh win64)"
+          URL="https://artifacts.videolan.org/vlc/win64/vlc-contrib-${TRIPLET}-${VLC_CONTRIB_SHA}.tar.zst"
+          if extras/ci/check-url.sh "$URL"; then
+            echo "Found prebuilt contribs: $URL"
+            echo "VLC_PREBUILT_CONTRIBS_URL=$URL" >> "$GITHUB_ENV"
+          else
+            echo "No prebuilt contribs for ${VLC_CONTRIB_SHA}; contribs will be built from source (slow)."
+          fi
+
+      - name: Build VLC + Windows installer/portable
+        shell: bash
+        run: |
+          set -x
+          FLAGS="-a x86_64 -x -i u"
+          if [ -n "${VLC_PREBUILT_CONTRIBS_URL:-}" ]; then FLAGS="-p ${FLAGS}"; fi
+          echo "Running: extras/package/win32/build.sh ${FLAGS}"
+          extras/package/win32/build.sh ${FLAGS}
+
+      - name: Stage outputs
+        shell: bash
+        run: |
+          set -x
+          mkdir -p out
+          cp -v win64/vlc-*.exe          out/ 2>/dev/null || true
+          cp -v win64/vlc-*-release.7z   out/ 2>/dev/null || true
+          cp -v win64/vlc-*.msi          out/ 2>/dev/null || true
+          ls -la out
+          if [ -z "$(ls -A out 2>/dev/null)" ]; then
+            echo "::error::No Windows artifacts were produced."
+            echo "--- contents of win64/ ---"
+            ls -la win64/ || true
+            exit 1
+          fi
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: vlc-win64-subtitle-hotswitch
+          path: out/*
+          if-no-files-found: error
