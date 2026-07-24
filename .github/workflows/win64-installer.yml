@@ -65,29 +65,27 @@ jobs:
           extras/package/win32/build.sh ${FLAGS} \
             || echo "::warning::build.sh exited $? (likely the optional MSI step); verifying real outputs next"
 
-      - name: Stage outputs
+      - name: Stage installer
         shell: bash
         run: |
           set -x
           mkdir -p out
-          # The installer/portable land in the repo root and/or the win64/ dir
-          # depending on the target, so search a couple of levels for them.
-          find . -maxdepth 3 -type f -name 'vlc-*-win64.exe'         -exec cp -v {} out/ \; || true
-          find . -maxdepth 3 -type f -name 'vlc-*-win64-release.7z'  -exec cp -v {} out/ \; || true
-          find . -maxdepth 3 -type f -name 'vlc-*win64*.msi'         -exec cp -v {} out/ \; || true
-          echo "--- staged artifacts ---"
+          # Collect ONLY the installer .exe (skip the large portable .7z) so the
+          # uploaded artifact stays small (~55 MB). The .exe lands in the repo
+          # root and/or the win64/ dir depending on the target.
+          find . -maxdepth 3 -type f -name 'vlc-*-win64.exe' -exec cp -v {} out/ \; || true
+          echo "--- staged artifact ---"
           ls -la out
-          # Require at least the installer .exe or the portable .7z.
-          if ! ls out/vlc-*-win64.exe out/vlc-*-win64-release.7z >/dev/null 2>&1; then
-            echo "::error::No Windows .exe or portable .7z was produced."
+          if ! ls out/vlc-*-win64.exe >/dev/null 2>&1; then
+            echo "::error::No Windows installer .exe was produced."
             echo "--- repo root ---"; ls -la . || true
             echo "--- win64/ ---";    ls -la win64/ || true
             exit 1
           fi
 
-      - name: Upload artifacts
+      - name: Upload installer
         uses: actions/upload-artifact@v4
         with:
-          name: vlc-win64-subtitle-hotswitch
-          path: out/*
+          name: vlc-win64-installer
+          path: out/vlc-*-win64.exe
           if-no-files-found: error
