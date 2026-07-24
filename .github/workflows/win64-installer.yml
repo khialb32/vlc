@@ -57,21 +57,31 @@ jobs:
           FLAGS="-a x86_64 -x -i u"
           if [ -n "${VLC_PREBUILT_CONTRIBS_URL:-}" ]; then FLAGS="-p ${FLAGS}"; fi
           echo "Running: extras/package/win32/build.sh ${FLAGS}"
-          extras/package/win32/build.sh ${FLAGS}
+          # -i u builds the .exe installer + the portable .7z, and also attempts
+          # an MSI (needs the WiX toolset, which isn't configured here). The MSI
+          # step / its checksum can exit non-zero AFTER the .exe and .7z are
+          # already produced, so don't let that sink the job -- the next step
+          # verifies the real artifacts exist and fails if they don't.
+          extras/package/win32/build.sh ${FLAGS} \
+            || echo "::warning::build.sh exited $? (likely the optional MSI step); verifying real outputs next"
 
       - name: Stage outputs
         shell: bash
         run: |
           set -x
           mkdir -p out
-          cp -v win64/vlc-*.exe          out/ 2>/dev/null || true
-          cp -v win64/vlc-*-release.7z   out/ 2>/dev/null || true
-          cp -v win64/vlc-*.msi          out/ 2>/dev/null || true
+          # The installer/portable land in the repo root and/or the win64/ dir
+          # depending on the target, so search a couple of levels for them.
+          find . -maxdepth 3 -type f -name 'vlc-*-win64.exe'         -exec cp -v {} out/ \; || true
+          find . -maxdepth 3 -type f -name 'vlc-*-win64-release.7z'  -exec cp -v {} out/ \; || true
+          find . -maxdepth 3 -type f -name 'vlc-*win64*.msi'         -exec cp -v {} out/ \; || true
+          echo "--- staged artifacts ---"
           ls -la out
-          if [ -z "$(ls -A out 2>/dev/null)" ]; then
-            echo "::error::No Windows artifacts were produced."
-            echo "--- contents of win64/ ---"
-            ls -la win64/ || true
+          # Require at least the installer .exe or the portable .7z.
+          if ! ls out/vlc-*-win64.exe out/vlc-*-win64-release.7z >/dev/null 2>&1; then
+            echo "::error::No Windows .exe or portable .7z was produced."
+            echo "--- repo root ---"; ls -la . || true
+            echo "--- win64/ ---";    ls -la win64/ || true
             exit 1
           fi
 
