@@ -22,6 +22,11 @@ jobs:
     timeout-minutes: 350
     container:
       image: registry.videolan.org/vlc-debian-win64-posix:20260611225331
+      # Run as root so actions/checkout (Node) can write the runner's mounted
+      # temp dirs; the image's default user has a UID that can't, which fails
+      # checkout with EACCES on /__w/_temp/_runner_file_commands. VLC's own CI
+      # uses these images as root too.
+      options: --user root
     steps:
       - name: Checkout
         uses: actions/checkout@v4
