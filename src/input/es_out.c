@@ -2711,6 +2711,18 @@ static void EsOutSelectEs(es_out_sys_t *p_sys, es_out_id_t *es, bool b_force, en
     if( es->p_dec == NULL || es->p_pgrm != p_sys->p_pgrm )
         return;
 
+    /* When a subtitle track is (re)selected while paused, the decoder that was
+     * just created is immediately paused too (see EsOutCreateDecoder), so it
+     * would not decode anything until playback resumes. Flush it: for a paused
+     * video/spu decoder this arms frames_countdown to 1 (decode one subtitle on
+     * the frozen picture, like seek-while-paused) and clears any previously
+     * displayed subtitle. The current cue is then re-emitted to it by the input
+     * (RefreshSlaveSubWhilePaused), giving real-time subtitle switching while
+     * paused. Flush must happen here, before that re-emit, since it empties the
+     * decoder FIFO. */
+    if( p_sys->b_paused && es->fmt.i_cat == SPU_ES )
+        vlc_input_decoder_Flush( es->p_dec );
+
     /* Mark it as selected */
     EsOutSendEsEvent(p_sys, es, VLC_INPUT_ES_SELECTED, b_force, vout_order);
 
