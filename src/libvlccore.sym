@@ -862,6 +862,7 @@ vlc_player_aout_SetVolume
 vlc_player_ChangeRate
 vlc_player_CondWait
 vlc_player_CycleTrack
+vlc_player_CycleTrackNoDisable
 vlc_player_DisplayPosition
 vlc_player_DecrementRate
 vlc_player_Delete
