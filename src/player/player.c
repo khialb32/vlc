@@ -714,6 +714,76 @@ vlc_player_CycleTrack(vlc_player_t *player, enum es_format_category_e cat,
 }
 
 void
+vlc_player_CycleTrackNoDisable(vlc_player_t *player,
+                               enum es_format_category_e cat,
+                               enum vlc_vout_order vout_order, bool next)
+{
+    size_t count = vlc_player_GetTrackCount(player, cat);
+    if (!count)
+        return;
+
+    vlc_es_id_t *keep_id = NULL;
+    size_t selected_count = 0;
+
+    /* If no track of this order is selected, start just before the first
+     * (next) or just after the last (!next) so the first wrap lands on the
+     * first / last track respectively. */
+    size_t cycle_index = next ? count - 1 : count;
+
+    for (size_t i = 0; i < count && selected_count < 2; ++i)
+    {
+        const struct vlc_player_track *track =
+            vlc_player_GetTrackAt(player, cat, i);
+        assert(track);
+
+        if (track->selected)
+        {
+            enum vlc_vout_order order;
+            vlc_player_GetEsIdVout(player, track->es_id, &order);
+            if (order == vout_order)
+                cycle_index = i;        /* current selection for this order */
+            else
+                keep_id = track->es_id; /* other-order track we must keep */
+            ++selected_count;
+        }
+    }
+
+    vlc_es_id_t *cycle_id = NULL;
+    /* Always wrap around; never break on a "disable" step. */
+    for (size_t i = 0; i < count; ++i)
+    {
+        cycle_index = (cycle_index + (next ? 1 : -1) + count) % count;
+
+        const struct vlc_player_track *track =
+            vlc_player_GetTrackAt(player, cat, cycle_index);
+        if (!track->selected)
+        {
+            cycle_id = track->es_id;
+            break;
+        }
+    }
+
+    /* Only one track and it is already selected: keep it, never disable. */
+    if (!cycle_id)
+        return;
+
+    /* PRIMARY must be first in the list. */
+    vlc_es_id_t *esIds[] = { cycle_id, keep_id, NULL };
+    if (vout_order == VLC_VOUT_ORDER_SECONDARY)
+    {
+        esIds[0] = keep_id;
+        esIds[1] = cycle_id;
+    }
+    if (!esIds[0])
+    {
+        esIds[0] = esIds[1];
+        esIds[1] = NULL;
+    }
+
+    vlc_player_SelectEsIdList(player, cat, esIds);
+}
+
+void
 vlc_player_UnselectEsId(vlc_player_t *player, vlc_es_id_t *id)
 {
     struct vlc_player_input *input = vlc_player_get_input_locked(player);
