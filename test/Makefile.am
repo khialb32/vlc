@@ -70,6 +70,7 @@ check_PROGRAMS = \
 	test_src_video_output \
 	test_src_video_output_opengl \
 	test_src_video_output_spu \
+	test_modules_audio_filter_dualmic \
 	test_modules_lua_extension \
 	test_modules_lua_playlist_parser \
 	test_modules_misc_medialibrary \
@@ -335,6 +336,9 @@ test_modules_lua_playlist_parser_SOURCES = modules/lua/playlist_parser.c
 test_modules_lua_playlist_parser_LDADD = $(LIBVLCCORE) $(LIBVLC)
 test_modules_lua_playlist_parser_CPPFLAGS = $(AM_CPPFLAGS)
 
+test_modules_audio_filter_dualmic_SOURCES = modules/audio_filter/dualmic.c \
+				../modules/audio_filter/dualmic.h
+test_modules_audio_filter_dualmic_LDADD = $(LIBVLCCORE) $(LIBVLC) $(LIBM)
 test_modules_misc_medialibrary_SOURCES = modules/misc/medialibrary.c
 test_modules_misc_medialibrary_LDADD = $(LIBVLCCORE) $(LIBVLC)
 test_modules_packetizer_helpers_SOURCES = modules/packetizer/helpers.c

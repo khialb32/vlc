@@ -1,4 +1,12 @@
 vlc_tests += {
+    'name' : 'test_modules_audio_filter_dualmic',
+    'sources' : files('audio_filter/dualmic.c'),
+    'suite' : ['modules', 'test_modules'],
+    'link_with' : [libvlc, libvlccore],
+    'dependencies' : [m_lib],
+}
+
+vlc_tests += {
     'name' : 'test_modules_lua_extension',
     'sources' : files('lua/extension.c'),
     'suite' : ['modules', 'test_modules'],

@@ -104,6 +104,8 @@ EXTRA_DIST = \
 	translations.txt \
 	demo.sh \
 	doc_helper.sh \
+	dual-microphone.md \
+	dualmic-virtual-mic.sh \
 	ldoc-config.ld \
 	$(NULL)
 

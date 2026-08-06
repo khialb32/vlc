@@ -232,6 +232,7 @@ modules/audio_filter/expander.c
 modules/audio_filter/limiter.c
 modules/audio_filter/converter/format.c
 modules/audio_filter/converter/tospdif.c
+modules/audio_filter/dualmic.c
 modules/audio_filter/equalizer.c
 modules/audio_filter/equalizer_presets.h
 modules/audio_filter/gain.c

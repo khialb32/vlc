@@ -51,6 +51,13 @@ vlc_modules += {
     'link_with' : [libdynamics],
 }
 
+# Dual-microphone noise canceller module
+vlc_modules += {
+    'name' : 'dualmic',
+    'sources' : files('dualmic.c'),
+    'dependencies' : [m_lib]
+}
+
 # Equalizer filter module
 vlc_modules += {
     'name' : 'equalizer',
