@@ -2003,26 +2003,52 @@ static void ControlInsertDemuxFilter( input_thread_t* p_input, const char* psz_d
         msg_Dbg(p_input, "Failed to create demux filter %s", psz_demux_chain);
 }
 
+/* How far behind the master's demux time the subtitle slaves are rewound
+ * before being pumped again by RefreshSubtitleSlaves().
+ *
+ * A margin is needed for two independent reasons:
+ *
+ *  - DEMUX_GET_TIME on the master is the *demuxer* position, which runs ahead
+ *    of the picture on screen by roughly the input pts delay (es_out paces the
+ *    demuxer with input_clock_GetWakeup(), which subtracts the buffering
+ *    duration). Anchoring exactly there can land on the next cue instead of
+ *    the one being displayed.
+ *
+ *  - DEMUX_SET_TIME does not mean the same thing in every subtitle demuxer.
+ *    subtitle.c rewinds to the last cue starting at or before the date
+ *    (modules/demux/subtitle.c:805), but vobsub.c advances to the first cue
+ *    starting after it (modules/demux/vobsub.c:271), so an exact anchor would
+ *    systematically skip the line currently on screen for vobsub.
+ *
+ * Rewinding by this margin while leaving the demux barrier at the master's
+ * time re-emits the cue covering "now" plus at most a couple of cues that have
+ * already expired; the SPU drops those at render time because their stop date
+ * is in the past. The cue cursor ends up exactly where it was before the
+ * refresh, so subsequent SlaveDemux() calls are unaffected. */
+#define INPUT_SUBTITLE_REFRESH_MARGIN (INT64_C(10) * CLOCK_FREQ)
+
 /* Re-emit the subtitle line covering the current playback time.
  *
  * When a subtitle track is (re)selected, the external subtitle (slave)
  * demuxers keep the cue cursor they had reached, which is already past the
  * line covering the current time: the newly selected track would stay blank
  * until the *next* cue. While paused it is worse, because MainLoop() does not
- * pump any demuxer at all, so nothing shows until playback resumes -- which
- * breaks the common "pause, switch subtitles to read the translation" flow.
+ * pump any demuxer at all (see the `if( !b_paused )` guard around
+ * MainLoopDemux()), so nothing shows until playback resumes -- which breaks
+ * the common "pause, switch subtitles to read the translation" flow.
  *
- * Re-anchor every slave-timed (subtitle) demuxer at the current time --
- * DEMUX_SET_TIME is implemented by the subtitle demuxers as "rewind the cue
- * cursor to that date" -- and pump it exactly once, so the overlapping cue is
- * sent again right away. Blocks of tracks that are not selected are dropped by
- * es_out, so refreshing every subtitle slave is harmless.
+ * Rewind every slave-timed (subtitle) demuxer a little before the current time
+ * and pump it exactly once with the barrier set at the current time, so the
+ * overlapping cue is sent again right away. Blocks of tracks that are not
+ * selected are dropped by es_out (EsOutSend -> `if( !es->p_dec )`), so
+ * refreshing every subtitle slave is harmless.
  *
  * Only slaves are touched, and only those accepting DEMUX_SET_NEXT_DEMUX_TIME
  * (i.e. demuxers driven by the master clock, which is what subtitle files are).
  * The master demuxer is never pumped here: that would pull audio/video packets
- * out of band. Slave-mode subtitle demuxers do not emit PCR, so this cannot
- * disturb the input clock, and therefore cannot affect audio/video timing. */
+ * out of band. Slave-mode subtitle demuxers do not emit PCR (subtitle.c only
+ * calls es_out_SetPCR() when !b_slave), so this cannot disturb the input clock
+ * and therefore cannot affect audio/video timing. */
 static void RefreshSubtitleSlaves( input_thread_t *p_input )
 {
     input_thread_private_t *priv = input_priv( p_input );
@@ -2034,6 +2060,10 @@ static void RefreshSubtitleSlaves( input_thread_t *p_input )
     if( demux_Control( priv->master->p_demux, DEMUX_GET_TIME, &i_time ) )
         return;
 
+    int64_t i_from = i_time - INPUT_SUBTITLE_REFRESH_MARGIN;
+    if( i_from < VLC_TICK_0 )
+        i_from = VLC_TICK_0;
+
     for( int i = 0; i < priv->i_slave; i++ )
     {
         input_source_t *in = priv->slave[i];
@@ -2041,13 +2071,35 @@ static void RefreshSubtitleSlaves( input_thread_t *p_input )
         if( in->b_eof )
             continue;
 
-        /* Only demuxers driven by the master's clock, i.e. subtitle files. */
+        /* Only sources attached as external *subtitle* slaves. This is the
+         * audio-safety gate: subtitle demuxers (subtitle.c, webvtt.c, stl.c,
+         * ttml.c) guard every es_out_SetPCR() call with `!b_slave', and
+         * vobsub.c has none at all, so pumping them out of band cannot feed a
+         * clock point. Probing DEMUX_SET_NEXT_DEMUX_TIME alone is NOT enough:
+         * modules/demux/image.c and modules/access/timecode.c accept it too
+         * and call es_out_SetPCR() unconditionally, which while paused would
+         * be seen as a stream discontinuity and reset the input clock. */
+        if( !in->b_slave_sub )
+            continue;
+
+        /* Probe: only demuxers driven by the master's clock, i.e. subtitle
+         * files, accept this. Everything else is left alone. */
         if( demux_Control( in->p_demux, DEMUX_SET_NEXT_DEMUX_TIME, i_time ) )
             continue;
 
-        /* Rewind the cue cursor to the current time, then re-emit that cue. */
-        demux_Control( in->p_demux, DEMUX_SET_TIME, i_time - VLC_TICK_0 );
-        demux_Demux( in->p_demux );
+        /* Rewind the cue cursor, then (re)arm the barrier at the current time.
+         * The order matters: several subtitle demuxers reset their barrier
+         * from DEMUX_SET_TIME (subtitle.c:808, webvtt.c:460, stl.c:128). */
+        if( demux_Control( in->p_demux, DEMUX_SET_TIME, i_from, true ) )
+            continue;
+        demux_Control( in->p_demux, DEMUX_SET_NEXT_DEMUX_TIME, i_time );
+
+        /* Same EOF bookkeeping as SlaveDemux(). */
+        if( demux_Demux( in->p_demux ) <= 0 )
+        {
+            msg_Dbg( p_input, "slave %d EOF (subtitle refresh)", i );
+            in->b_eof = true;
+        }
     }
 }
 
@@ -2256,10 +2308,22 @@ static bool Control( input_thread_t *p_input,
 
             demux_Control( input_priv(p_input)->master->p_demux, DEMUX_SET_ES, (int)val.i_int );
 
-            /* Show the subtitle line covering the current time straight away,
-             * both during playback and while paused, instead of waiting for
-             * the next cue (or for playback to resume). */
-            RefreshSubtitleSlaves( p_input );
+            /* If a *subtitle* track was just selected, show the line covering
+             * the current time straight away, both during playback and while
+             * paused, instead of waiting for the next cue (or for playback to
+             * resume).
+             *
+             * es_out has already published the new selection through the
+             * "spu-es" variable (EsSelect -> input_SendEventEsSelect ->
+             * VarListSelect -> var_Change(VLC_VAR_SETVALUE), which does not run
+             * the callbacks and so cannot re-enter this control), so comparing
+             * against it identifies a subtitle selection without having to
+             * resolve the ES id here. This keeps audio/video track changes --
+             * which come through this very same control -- from re-emitting
+             * cues into the already running subtitle channel. */
+            if( val.i_int >= 0
+             && var_GetInteger( p_input, "spu-es" ) == val.i_int )
+                RefreshSubtitleSlaves( p_input );
             break;
 
         case INPUT_CONTROL_RESTART_ES:
@@ -3509,6 +3573,11 @@ static int input_SlaveSourceAdd( input_thread_t *p_input,
         /* Get meta (access and demux) */
         InputUpdateMeta( p_input, p_source->p_demux );
     }
+
+    /* Remember this is a subtitle slave: RefreshSubtitleSlaves() only
+     * re-demuxes those, because only subtitle demuxers are guaranteed not to
+     * emit a PCR while slave-timed. */
+    p_source->b_slave_sub = ( i_type == SLAVE_TYPE_SPU );
 
     TAB_APPEND( input_priv(p_input)->i_slave, input_priv(p_input)->slave, p_source );
 

@@ -1769,6 +1769,21 @@ static void EsSelect( es_out_t *out, es_out_id_t *es )
 
         if( es->p_dec == NULL || es->p_pgrm != p_sys->p_pgrm )
             return;
+
+        /* The input may be paused right now (the user pauses, then switches
+         * subtitle track to read the translation). Unlike 4.0, EsCreateDecoder()
+         * does *not* put the fresh decoder in the paused state -- see the FIXME
+         * in input_DecoderChangePause() (src/input/decoder.c) -- so it will
+         * happily decode the cue the input is about to re-emit
+         * (RefreshSubtitleSlaves() in src/input/input.c) even though playback is
+         * frozen. Flushing here is what guarantees the SPU channel is empty
+         * before that re-emit, and it is also the safety net for the day the
+         * decoder *is* created paused: input_DecoderFlush() arms
+         * frames_countdown to 1 for a paused video/spu decoder
+         * (src/input/decoder.c), which is exactly what lets the decoder thread
+         * pass its pause gate for one subtitle. */
+        if( es->fmt.i_cat == SPU_ES )
+            input_DecoderFlush( es->p_dec );
     }
 
     /* Mark it as selected */
@@ -1875,6 +1890,14 @@ static void EsOutSelect( es_out_t *out, es_out_id_t *es, bool b_force )
                 EsUnselect( out, p_esprops->p_main_es, false );
 
             EsSelect( out, es );
+        }
+        else if( b_force && es->fmt.i_cat == SPU_ES && es->p_dec != NULL )
+        {
+            /* Explicit (re)selection of the subtitle track that is already
+             * selected. EsSelect() is skipped, so clear the channel here
+             * instead: the cue that RefreshSubtitleSlaves() is about to re-emit
+             * must replace what is displayed, not stack on top of it. */
+            input_DecoderFlush( es->p_dec );
         }
     }
     else if( p_sys->i_mode == ES_OUT_MODE_PARTIAL )

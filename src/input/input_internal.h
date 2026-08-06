@@ -73,6 +73,15 @@ typedef struct
 
     bool       b_eof;   /* eof of demuxer */
 
+    /* True if this source was attached as an external *subtitle* slave
+     * (SLAVE_TYPE_SPU). Only such sources may be re-demuxed out of band by
+     * RefreshSubtitleSlaves(): subtitle demuxers skip every es_out_SetPCR()
+     * call once they are slave-timed, so pumping them cannot perturb the
+     * input clock. Other slave-timed sources (modules/demux/image.c,
+     * modules/access/timecode.c) also accept DEMUX_SET_NEXT_DEMUX_TIME and
+     * DEMUX_SET_TIME but do emit PCR unconditionally. */
+    bool       b_slave_sub;
+
 } input_source_t;
 
 typedef struct
