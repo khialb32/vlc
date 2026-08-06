@@ -1,0 +1,112 @@
+name: Build patched VLC 3.0 LTS for Windows (x86_64)
+
+# Cross-compiles this branch (VLC 3.0.x LTS -- the stable line with the
+# classic interface) into a Windows installer and publishes it as a Release
+# asset, so it has a plain, direct download link.
+#
+# Runs inside VideoLAN's official 3.0 win64 build image (mingw-w64 + NSIS).
+# GitHub-hosted runners can reach VideoLAN's artifact servers, so prebuilt
+# contribs are used when available; otherwise contribs build from source.
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - claude/vlc3-subtitle-hotswitch
+
+permissions:
+  contents: write
+
+jobs:
+  win64:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    container:
+      image: registry.videolan.org/vlc-debian-win64-3.0:20260721134159
+      # Run as root so actions/checkout can write the runner's mounted temp
+      # dirs; the image's default user cannot, which fails checkout with EACCES.
+      options: --user root
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Mark workspace safe for git
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Resolve prebuilt contribs (speed-up when available)
+        shell: bash
+        run: |
+          set -x
+          TRIPLET=x86_64-w64-mingw32
+          # NOTE: in 3.0 get-contrib-sha.sh takes no argument, and the
+          # artifact path is under /vlc-3.0/ (not /vlc/).
+          VLC_CONTRIB_SHA="$(extras/ci/get-contrib-sha.sh)"
+          URL="https://artifacts.videolan.org/vlc-3.0/win64/vlc-contrib-${TRIPLET}-${VLC_CONTRIB_SHA}.tar.zst"
+          if extras/ci/check-url.sh "$URL"; then
+            echo "Found prebuilt contribs: $URL"
+            echo "VLC_PREBUILT_CONTRIBS_URL=$URL" >> "$GITHUB_ENV"
+          else
+            echo "No prebuilt contribs for ${VLC_CONTRIB_SHA}; contribs will be built from source (slow)."
+          fi
+
+      - name: Build VLC + Windows installer
+        shell: bash
+        run: |
+          set -x
+          FLAGS="-a x86_64 -i u"
+          if [ -n "${VLC_PREBUILT_CONTRIBS_URL:-}" ]; then FLAGS="-p ${FLAGS}"; fi
+          echo "Running: extras/package/win32/build.sh ${FLAGS}"
+          # -i u builds the installer .exe and a release .7z, and also attempts
+          # an MSI (needs the WiX toolset, not configured here). The MSI step
+          # can exit non-zero AFTER the .exe is already produced, so don't let
+          # it sink the job -- the next step verifies the real artifact exists.
+          extras/package/win32/build.sh ${FLAGS} \
+            || echo "::warning::build.sh exited $? (likely the optional MSI step); verifying real outputs next"
+
+      - name: Stage installer
+        shell: bash
+        run: |
+          set -x
+          mkdir -p out
+          # Collect ONLY the installer .exe so the artifact stays small.
+          find . -maxdepth 3 -type f -name 'vlc-*-win64.exe' -exec cp -v {} out/ \; || true
+          echo "--- staged artifact ---"
+          ls -la out
+          if ! ls out/vlc-*-win64.exe >/dev/null 2>&1; then
+            echo "::error::No Windows installer .exe was produced."
+            echo "--- repo root ---"; ls -la . || true
+            echo "--- win64/ ---";    ls -la win64/ || true
+            exit 1
+          fi
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vlc3-win64-installer
+          path: out/vlc-*-win64.exe
+          if-no-files-found: error
+
+      - name: Publish as a Release (direct download link)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: vlc3-subtitle-fixes
+          name: VLC 3.0 LTS (win64) with subtitle fixes
+          body: |
+            VLC 3.0.x LTS for 64-bit Windows -- the **stable** line with the classic
+            interface -- with three subtitle improvements:
+
+            - **Instant subtitle hot-switch while playing** — the newly selected
+              language's current line shows immediately, not at the next cue.
+            - **Subtitle switch while PAUSED shows immediately** — pause on a frame,
+              switch language, and the line for that moment appears at once
+              (for reading translations).
+            - **New "Cycle subtitle track (skip Disable)" hotkey** — default
+              **Alt+Shift+V** (Alt+Shift+S on macOS); cycles only through the
+              available subtitle tracks, wrapping around, never landing on
+              Disable/N-A. Rebindable in Preferences → Hotkeys.
+
+            Unsigned build: if Windows SmartScreen warns, click **More info → Run anyway**.
+          files: out/vlc-*-win64.exe
+          make_latest: true
