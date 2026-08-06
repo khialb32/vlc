@@ -51,19 +51,27 @@ jobs:
             echo "No prebuilt contribs for ${VLC_CONTRIB_SHA}; contribs will be built from source (slow)."
           fi
 
-      - name: Build VLC + Windows installer
+      - name: Build VLC
         shell: bash
         run: |
           set -x
-          FLAGS="-a x86_64 -i u"
+          # Deliberately NO -i here. On 3.0 "-i u" runs
+          #   make -j package-win32-release package-win32-exe package-msi
+          # as a single parallel make, and package-msi needs the WiX toolset
+          # (wine + .NET) which this image lacks -- its failure can abort the
+          # make before the .exe is finished. Build first, package after.
+          FLAGS="-r -a x86_64"
           if [ -n "${VLC_PREBUILT_CONTRIBS_URL:-}" ]; then FLAGS="-p ${FLAGS}"; fi
           echo "Running: extras/package/win32/build.sh ${FLAGS}"
-          # -i u builds the installer .exe and a release .7z, and also attempts
-          # an MSI (needs the WiX toolset, not configured here). The MSI step
-          # can exit non-zero AFTER the .exe is already produced, so don't let
-          # it sink the job -- the next step verifies the real artifact exists.
-          extras/package/win32/build.sh ${FLAGS} \
-            || echo "::warning::build.sh exited $? (likely the optional MSI step); verifying real outputs next"
+          extras/package/win32/build.sh ${FLAGS}
+
+      - name: Package the NSIS installer
+        shell: bash
+        run: |
+          set -x
+          # Only the NSIS installer target, so a missing WiX/MSI toolchain
+          # cannot take the build down with it.
+          make -C win64 package-win32-exe
 
       - name: Stage installer
         shell: bash
