@@ -2003,6 +2003,54 @@ static void ControlInsertDemuxFilter( input_thread_t* p_input, const char* psz_d
         msg_Dbg(p_input, "Failed to create demux filter %s", psz_demux_chain);
 }
 
+/* Re-emit the subtitle line covering the current playback time.
+ *
+ * When a subtitle track is (re)selected, the external subtitle (slave)
+ * demuxers keep the cue cursor they had reached, which is already past the
+ * line covering the current time: the newly selected track would stay blank
+ * until the *next* cue. While paused it is worse, because MainLoop() does not
+ * pump any demuxer at all, so nothing shows until playback resumes -- which
+ * breaks the common "pause, switch subtitles to read the translation" flow.
+ *
+ * Re-anchor every slave-timed (subtitle) demuxer at the current time --
+ * DEMUX_SET_TIME is implemented by the subtitle demuxers as "rewind the cue
+ * cursor to that date" -- and pump it exactly once, so the overlapping cue is
+ * sent again right away. Blocks of tracks that are not selected are dropped by
+ * es_out, so refreshing every subtitle slave is harmless.
+ *
+ * Only slaves are touched, and only those accepting DEMUX_SET_NEXT_DEMUX_TIME
+ * (i.e. demuxers driven by the master clock, which is what subtitle files are).
+ * The master demuxer is never pumped here: that would pull audio/video packets
+ * out of band. Slave-mode subtitle demuxers do not emit PCR, so this cannot
+ * disturb the input clock, and therefore cannot affect audio/video timing. */
+static void RefreshSubtitleSlaves( input_thread_t *p_input )
+{
+    input_thread_private_t *priv = input_priv( p_input );
+    int64_t i_time;
+
+    if( priv->master == NULL || priv->i_slave <= 0 )
+        return;
+
+    if( demux_Control( priv->master->p_demux, DEMUX_GET_TIME, &i_time ) )
+        return;
+
+    for( int i = 0; i < priv->i_slave; i++ )
+    {
+        input_source_t *in = priv->slave[i];
+
+        if( in->b_eof )
+            continue;
+
+        /* Only demuxers driven by the master's clock, i.e. subtitle files. */
+        if( demux_Control( in->p_demux, DEMUX_SET_NEXT_DEMUX_TIME, i_time ) )
+            continue;
+
+        /* Rewind the cue cursor to the current time, then re-emit that cue. */
+        demux_Control( in->p_demux, DEMUX_SET_TIME, i_time - VLC_TICK_0 );
+        demux_Demux( in->p_demux );
+    }
+}
+
 static bool Control( input_thread_t *p_input,
                      int i_type, vlc_value_t val )
 {
@@ -2207,6 +2255,11 @@ static bool Control( input_thread_t *p_input,
                             ES_OUT_SET_ES_BY_ID, (int)val.i_int );
 
             demux_Control( input_priv(p_input)->master->p_demux, DEMUX_SET_ES, (int)val.i_int );
+
+            /* Show the subtitle line covering the current time straight away,
+             * both during playback and while paused, instead of waiting for
+             * the next cue (or for playback to resume). */
+            RefreshSubtitleSlaves( p_input );
             break;
 
         case INPUT_CONTROL_RESTART_ES:
