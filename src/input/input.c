@@ -1898,6 +1898,37 @@ void input_SetEsCatIds(input_thread_t *input, enum es_format_category_e cat,
     input_ControlPush(input, INPUT_CONTROL_SET_ES_CAT_IDS, &param);
 }
 
+/* While the input is paused, MainLoop() does not pump any demuxer (see the
+ * `if( !b_paused )` guard around MainLoopDemux()). When an external subtitle
+ * (slave) track is (re)selected during pause, the DEMUX_SET_ES issued for it
+ * only rewinds the subtitle demuxer's cue cursor (subtitle.c ResetCurrentIndex)
+ * without emitting anything, so the current subtitle line stays hidden until
+ * playback resumes. This forces a single re-demux of that slave at the current
+ * playback time so the cue overlapping "now" is pushed to its SPU decoder
+ * (which EsOutSelectEs has armed with vlc_input_decoder_Flush to decode one
+ * subtitle while paused). Restricted to slave sources: pumping the master while
+ * paused would also pull audio/video packets. */
+static void RefreshSlaveSubWhilePaused(input_thread_t *input,
+                                       const input_source_t *source,
+                                       int i_input_id)
+{
+    input_thread_private_t *priv = input_priv(input);
+
+    if (priv->i_state != PAUSE_S || source == priv->master)
+        return;
+
+    vlc_tick_t i_time;
+    if (demux_Control(priv->master->p_demux, DEMUX_GET_TIME, &i_time))
+        return;
+
+    /* Align the slave to the current time, re-anchor its cursor against that
+     * fresh date (DEMUX_SET_ES -> ResetCurrentIndex), then re-emit the
+     * overlapping cue exactly once. */
+    demux_Control(source->p_demux, DEMUX_SET_NEXT_DEMUX_TIME, i_time);
+    demux_Control(source->p_demux, DEMUX_SET_ES, i_input_id);
+    demux_Demux(source->p_demux);
+}
+
 static void ControlSetEsList(input_thread_t *input,
                              enum es_format_category_e cat,
                              vlc_es_id_t **ids)
@@ -1914,6 +1945,7 @@ static void ControlSetEsList(input_thread_t *input,
         assert(source);
         demux_Control(source->p_demux, DEMUX_SET_ES,
                       vlc_es_id_GetInputId(ids[0]));
+        RefreshSlaveSubWhilePaused(input, source, vlc_es_id_GetInputId(ids[0]));
         return;
     }
 
@@ -1947,6 +1979,7 @@ static void ControlSetEsList(input_thread_t *input,
             else
                 demux_Control(source->p_demux, DEMUX_SET_ES_LIST, set_es_idx,
                               array);
+            RefreshSlaveSubWhilePaused(input, source, array[0]);
         }
     }
     free(array);
@@ -2260,8 +2293,9 @@ static bool Control( input_thread_t *p_input,
             {
                 const input_source_t *source = vlc_es_id_GetSource( param.id );
                 assert( source );
-                demux_Control( source->p_demux, DEMUX_SET_ES,
-                               vlc_es_id_GetInputId( param.id ) );
+                const int i_input_id = vlc_es_id_GetInputId( param.id );
+                demux_Control( source->p_demux, DEMUX_SET_ES, i_input_id );
+                RefreshSlaveSubWhilePaused( p_input, source, i_input_id );
             }
             break;
         case INPUT_CONTROL_SET_ES_LIST:

@@ -1,0 +1,56 @@
+name: Publish installer as a Release
+
+# Takes the installer .exe already built by "Build patched VLC for Windows"
+# and publishes it as a GitHub Release asset, so it has a plain, direct,
+# no-login download link (instead of a zipped Actions artifact). Fast: it
+# only downloads and re-uploads, no compiling.
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: "Run ID of a successful win64-installer build to publish"
+        required: false
+  # Also run when this file itself changes, so it can be kicked off with a push.
+  push:
+    branches: [ claude/win64-installer-ci ]
+    paths: [ '.github/workflows/publish-release.yml' ]
+
+permissions:
+  contents: write
+  actions: read
+
+env:
+  # Successful win64-installer run whose artifact we publish by default.
+  SOURCE_RUN_ID: "30064549157"
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download the built installer artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: vlc-win64-installer
+          path: dist
+          run-id: ${{ github.event.inputs.run_id || env.SOURCE_RUN_ID }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Show what we got
+        run: ls -la dist
+
+      - name: Publish / refresh the release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: subtitle-fixes
+          name: VLC (win64) with subtitle fixes
+          body: |
+            VLC 4.0.0-dev for 64-bit Windows with three subtitle improvements:
+
+            - **Instant subtitle hot-switch while playing** — the new language's current line shows immediately, not at the next cue.
+            - **Subtitle switch while PAUSED now shows immediately** — pause on a frame, switch language, the line appears at once (real-time translation).
+            - **New "Cycle subtitle track (skip Disable)" hotkey** — default **Alt+Shift+V** (Alt+Shift+S on macOS); loops only through the available tracks, never lands on Disable/N-A. Rebindable in Preferences → Hotkeys.
+
+            Unsigned development build: if Windows SmartScreen warns, click **More info → Run anyway**.
+          files: dist/*.exe
+          make_latest: true

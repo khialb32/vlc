@@ -1,0 +1,91 @@
+name: Build patched VLC for Windows (x86_64)
+
+# Cross-compiles this branch (which contains the subtitle hot-switch fix) into a
+# Windows build and uploads the installer .exe plus a portable .7z as artifacts.
+# Runs inside VideoLAN's official win64 build image, which has the mingw-w64
+# toolchain + NSIS. GitHub-hosted runners can reach VideoLAN's contrib servers,
+# so prebuilt contribs are used when available (fast); otherwise contribs are
+# built from source (slow but still works).
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - claude/win64-installer-ci
+
+permissions:
+  contents: read
+
+jobs:
+  win64:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    container:
+      image: registry.videolan.org/vlc-debian-win64-posix:20260611225331
+      # Run as root so actions/checkout (Node) can write the runner's mounted
+      # temp dirs; the image's default user has a UID that can't, which fails
+      # checkout with EACCES on /__w/_temp/_runner_file_commands. VLC's own CI
+      # uses these images as root too.
+      options: --user root
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Mark workspace safe for git
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Resolve prebuilt contribs (speed-up when available)
+        shell: bash
+        run: |
+          set -x
+          TRIPLET=x86_64-w64-mingw32
+          VLC_CONTRIB_SHA="$(extras/ci/get-contrib-sha.sh win64)"
+          URL="https://artifacts.videolan.org/vlc/win64/vlc-contrib-${TRIPLET}-${VLC_CONTRIB_SHA}.tar.zst"
+          if extras/ci/check-url.sh "$URL"; then
+            echo "Found prebuilt contribs: $URL"
+            echo "VLC_PREBUILT_CONTRIBS_URL=$URL" >> "$GITHUB_ENV"
+          else
+            echo "No prebuilt contribs for ${VLC_CONTRIB_SHA}; contribs will be built from source (slow)."
+          fi
+
+      - name: Build VLC + Windows installer/portable
+        shell: bash
+        run: |
+          set -x
+          FLAGS="-a x86_64 -x -i u"
+          if [ -n "${VLC_PREBUILT_CONTRIBS_URL:-}" ]; then FLAGS="-p ${FLAGS}"; fi
+          echo "Running: extras/package/win32/build.sh ${FLAGS}"
+          # -i u builds the .exe installer + the portable .7z, and also attempts
+          # an MSI (needs the WiX toolset, which isn't configured here). The MSI
+          # step / its checksum can exit non-zero AFTER the .exe and .7z are
+          # already produced, so don't let that sink the job -- the next step
+          # verifies the real artifacts exist and fails if they don't.
+          extras/package/win32/build.sh ${FLAGS} \
+            || echo "::warning::build.sh exited $? (likely the optional MSI step); verifying real outputs next"
+
+      - name: Stage installer
+        shell: bash
+        run: |
+          set -x
+          mkdir -p out
+          # Collect ONLY the installer .exe (skip the large portable .7z) so the
+          # uploaded artifact stays small (~55 MB). The .exe lands in the repo
+          # root and/or the win64/ dir depending on the target.
+          find . -maxdepth 3 -type f -name 'vlc-*-win64.exe' -exec cp -v {} out/ \; || true
+          echo "--- staged artifact ---"
+          ls -la out
+          if ! ls out/vlc-*-win64.exe >/dev/null 2>&1; then
+            echo "::error::No Windows installer .exe was produced."
+            echo "--- repo root ---"; ls -la . || true
+            echo "--- win64/ ---";    ls -la win64/ || true
+            exit 1
+          fi
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: vlc-win64-installer
+          path: out/vlc-*-win64.exe
+          if-no-files-found: error

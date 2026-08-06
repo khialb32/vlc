@@ -839,6 +839,19 @@ static int Control( demux_t *p_demux, int i_query, va_list args )
             p_sys->i_next_demux_date = va_arg( args, vlc_tick_t ) - VLC_TICK_0;
             return VLC_SUCCESS;
 
+        case DEMUX_SET_ES:
+        case DEMUX_SET_ES_LIST:
+            /* The user just (re)selected this subtitle track. While it was
+             * deselected, Demux() -- driven forward by DEMUX_SET_NEXT_DEMUX_TIME
+             * -- kept advancing subtitles.i_current past the cue overlapping the
+             * current playback time, so nothing would be shown until the *next*
+             * cue. Rewind i_current to the last cue starting at or before
+             * i_next_demux_date; the following Demux() call then re-emits that
+             * cue immediately, giving a proper hot-switch between subtitle
+             * tracks instead of a gap until the next line. */
+            ResetCurrentIndex( p_demux );
+            return VLC_SUCCESS;
+
         case DEMUX_CAN_PAUSE:
         case DEMUX_SET_PAUSE_STATE:
         case DEMUX_CAN_CONTROL_PACE:

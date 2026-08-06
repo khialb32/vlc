@@ -1686,6 +1686,24 @@ vlc_player_CycleTrack(vlc_player_t *player, enum es_format_category_e cat,
                       enum vlc_vout_order vout_order, bool next);
 
 /**
+ * Cycle through the tracks, wrapping around, never disabling
+ *
+ * Unlike vlc_player_CycleTrack(), this never inserts a "no track" (disable)
+ * step: with nothing selected it selects the first (next) or last (!next)
+ * track; from the last it wraps back to the first. If a single track exists
+ * and is already selected, it is kept. Intended for subtitle cycling that must
+ * never land on Disable/N/A.
+ *
+ * @param player locked player instance
+ * @param cat VIDEO_ES, AUDIO_ES or SPU_ES
+ * @param next the cycle order
+ */
+VLC_API void
+vlc_player_CycleTrackNoDisable(vlc_player_t *player,
+                               enum es_format_category_e cat,
+                               enum vlc_vout_order vout_order, bool next);
+
+/**
  * Helper to select the next track
  *
  * If the last track is already selected, a call to this function will disable

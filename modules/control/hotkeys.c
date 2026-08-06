@@ -381,6 +381,10 @@ PLAYER_ACTION_HANDLER(Track)
             vlc_player_CycleTrack(player, SPU_ES, intf->p_sys->spu_channel_order,
                                   action_id == ACTIONID_SUBTITLE_TRACK);
             break;
+        case ACTIONID_SUBTITLE_TRACK_CYCLE:
+            vlc_player_CycleTrackNoDisable(player, SPU_ES,
+                                           intf->p_sys->spu_channel_order, true);
+            break;
         default:
             vlc_assert_unreachable();
     }
@@ -989,7 +993,7 @@ static struct vlc_action const actions[] =
     VLC_ACTION_INTF(JUMP_BACKWARD_EXTRASHORT, JUMP_FORWARD_LONG, PlayerSeek, true)
     VLC_ACTION_PLAYER(POSITION, POSITION, Position, true)
     VLC_ACTION_PLAYER(PROGRAM_SID_PREV, DISC_MENU, NavigateMedia, true)
-    VLC_ACTION_PLAYER(AUDIO_TRACK, SUBTITLE_TRACK, Track, true)
+    VLC_ACTION_PLAYER(AUDIO_TRACK, SUBTITLE_TRACK_CYCLE, Track, true)
     VLC_ACTION_PLAYER(AUDIODELAY_DOWN, SUBDELAY_UP, Delay, true)
     VLC_ACTION_PLAYER(RATE_NORMAL, RATE_FASTER_FINE, Rate, true)
     VLC_ACTION_PLAYER(SUBTITLE_TOGGLE, SUBTITLE_TOGGLE, ToggleSubtitle, true)
