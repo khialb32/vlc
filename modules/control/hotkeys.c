@@ -799,6 +799,67 @@ static int PutAction( intf_thread_t *p_intf, input_thread_t *p_input,
                 var_FreeList( &list, &list2 );
             }
             break;
+
+        case ACTIONID_SUBTITLE_TRACK_CYCLE:
+            /* Like ACTIONID_SUBTITLE_TRACK, but never selects the "Disable"
+             * entry (id -1): cycle through the available subtitle tracks only,
+             * wrapping around from the last one back to the first. */
+            if( p_input )
+            {
+                vlc_value_t val, list, list2;
+                int i_count, i, i_first = -1, i_cur = -1, i_next = -1;
+
+                var_Get( p_input, "spu-es", &val );
+                var_Change( p_input, "spu-es", VLC_VAR_GETCHOICES,
+                            &list, &list2 );
+                i_count = list.p_list->i_count;
+
+                /* Locate the first real track and the currently selected one,
+                 * ignoring the "Disable" entry entirely. */
+                for( i = 0; i < i_count; i++ )
+                {
+                    if( list.p_list->p_values[i].i_int == -1 )
+                        continue;
+                    if( i_first == -1 )
+                        i_first = i;
+                    if( list.p_list->p_values[i].i_int == val.i_int )
+                        i_cur = i;
+                }
+
+                if( i_first == -1 )
+                {
+                    /* No real subtitle track to cycle through */
+                    DisplayMessage( p_vout, _("Subtitle track: %s"),
+                                    _("N/A") );
+                    var_FreeList( &list, &list2 );
+                    break;
+                }
+
+                /* Next real track after the current one, wrapping around. */
+                if( i_cur != -1 )
+                {
+                    for( i = 1; i < i_count; i++ )
+                    {
+                        int i_idx = ( i_cur + i ) % i_count;
+                        if( list.p_list->p_values[i_idx].i_int != -1 )
+                        {
+                            i_next = i_idx;
+                            break;
+                        }
+                    }
+                }
+                /* Nothing (or "Disable") selected: start at the first track. */
+                if( i_next == -1 )
+                    i_next = i_first;
+
+                var_SetInteger( p_input, "spu-es",
+                                list.p_list->p_values[i_next].i_int );
+                DisplayMessage( p_vout, _("Subtitle track: %s"),
+                                list2.p_list->p_values[i_next].psz_string );
+                var_FreeList( &list, &list2 );
+            }
+            break;
+
         case ACTIONID_SUBTITLE_TOGGLE:
             if( p_input )
             {

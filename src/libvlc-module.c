@@ -1392,6 +1392,8 @@ static const char *const mouse_wheel_texts[] = {
 #define SUBTITLE_REVERSE_TRACK_KEY_LONGTEXT N_("Cycle through the available subtitle tracks in reverse order.")
 #define SUBTITLE_TRACK_KEY_TEXT N_("Cycle subtitle track")
 #define SUBTITLE_TRACK_KEY_LONGTEXT N_("Cycle through the available subtitle tracks.")
+#define SUBTITLE_TRACK_CYCLE_KEY_TEXT N_("Cycle subtitle track (skip Disable)")
+#define SUBTITLE_TRACK_CYCLE_KEY_LONGTEXT N_("Cycle through the available subtitle tracks, wrapping around and never disabling subtitles.")
 #define SUBTITLE_TOGGLE_KEY_TEXT N_("Toggle subtitles")
 #define SUBTITLE_TOGGLE_KEY_LONGTEXT N_("Toggle subtitle track visibility.")
 #define PROGRAM_SID_NEXT_KEY_TEXT N_("Cycle next program Service ID")
@@ -2266,6 +2268,7 @@ vlc_module_begin ()
 #   define KEY_AUDIODELAY_DOWN    "f"
 #   define KEY_AUDIO_TRACK        "l"
 #   define KEY_SUBTITLE_TRACK     "s"
+#   define KEY_SUBTITLE_TRACK_CYCLE "Alt+Shift+s"
 #   define KEY_SUBTITLE_TOGGLE    "Shift+s"
 #   define KEY_SUBTITLE_REVTRACK  "Alt+s"
 #   define KEY_PROGRAM_SID_NEXT   "x"
@@ -2409,6 +2412,7 @@ vlc_module_begin ()
 
 #   define KEY_AUDIO_TRACK        "b"
 #   define KEY_SUBTITLE_TRACK     "v"
+#   define KEY_SUBTITLE_TRACK_CYCLE "Alt+Shift+v"
 #   define KEY_SUBTITLE_TOGGLE    "Shift+v"
 #   define KEY_SUBTITLE_REVTRACK  "Alt+v"
 #   define KEY_PROGRAM_SID_NEXT   "x"
@@ -2587,6 +2591,8 @@ vlc_module_begin ()
              SUBTITLE_REVERSE_TRACK_KEY_TEXT, SUBTITLE_REVERSE_TRACK_KEY_LONGTEXT, false)
     add_key( "key-subtitle-track", KEY_SUBTITLE_TRACK,
              SUBTITLE_TRACK_KEY_TEXT, SUBTITLE_TRACK_KEY_LONGTEXT, false )
+    add_key( "key-subtitle-track-cycle", KEY_SUBTITLE_TRACK_CYCLE,
+             SUBTITLE_TRACK_CYCLE_KEY_TEXT, SUBTITLE_TRACK_CYCLE_KEY_LONGTEXT, false )
     add_key( "key-subtitle-toggle", KEY_SUBTITLE_TOGGLE,
              SUBTITLE_TOGGLE_KEY_TEXT, SUBTITLE_TOGGLE_KEY_LONGTEXT, false )
     add_key( "key-program-sid-next", KEY_PROGRAM_SID_NEXT,

@@ -353,6 +353,7 @@ static const struct name2action
     { "subtitle-text-scale-up", ACTIONID_SUBTITLE_TEXT_SCALE_UP, },
     { "subtitle-toggle", ACTIONID_SUBTITLE_TOGGLE, },
     { "subtitle-track", ACTIONID_SUBTITLE_TRACK, },
+    { "subtitle-track-cycle", ACTIONID_SUBTITLE_TRACK_CYCLE, },
     { "title-next", ACTIONID_TITLE_NEXT, },
     { "title-prev", ACTIONID_TITLE_PREV, },
     { "toggle-autoscale", ACTIONID_TOGGLE_AUTOSCALE, },
